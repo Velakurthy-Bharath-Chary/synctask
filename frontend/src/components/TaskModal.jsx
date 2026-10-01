@@ -31,7 +31,7 @@ export default function TaskModal({ task, members, onSave, onClose }) {
     const payload = {
       ...form,
       deadline: form.deadline ? new Date(form.deadline).toISOString() : null,
-      assigned_to: form.assigned_to ? parseInt(form.assigned_to) : null,
+      assigned_to: form.assigned_to || null,
     };
     onSave(payload);
   };

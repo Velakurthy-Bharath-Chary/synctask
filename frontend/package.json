@@ -23,9 +23,12 @@
   },
   "eslintConfig": {
     "extends": [
-      "react-app",
-      "react-app/jest"
-    ]
+      "react-app"
+    ],
+    "globals": {
+      "test": "readonly",
+      "expect": "readonly"
+    }
   },
   "browserslist": {
     "production": [

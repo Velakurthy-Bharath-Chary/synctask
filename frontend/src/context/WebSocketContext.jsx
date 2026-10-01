@@ -1,11 +1,12 @@
-import { createContext, useContext, useRef, useState, useCallback } from "react";
+import { createContext, useContext, useRef, useState, useCallback, useEffect } from "react";
 import { useAuth } from "./AuthContext";
+import { getMyProjects } from "../api/projectApi";
 
 const WebSocketContext = createContext(null);
 
 export function WebSocketProvider({ children }) {
   const { token } = useAuth();
-  const socketRef = useRef(null);
+  const socketsRef = useRef(new Map());
   const [notifications, setNotifications] = useState([]);
   const listenersRef = useRef({});
 
@@ -17,19 +18,34 @@ export function WebSocketProvider({ children }) {
     return () => listenersRef.current[event]?.delete(callback);
   }, []);
 
-  const connectToProject = useCallback((projectId) => {
-    if (!token) return;
+  const getWsBaseUrl = useCallback(() => {
+    const rawConfigured = process.env.REACT_APP_WS_URL || "ws://localhost:8000/api";
+    const configured = rawConfigured.endsWith("/api")
+      ? rawConfigured
+      : `${rawConfigured.replace(/\/+$/, "")}/api`;
+    const hostname = window.location.hostname;
+    const isLocalHostInConfig =
+      configured.includes("://localhost") || configured.includes("://127.0.0.1");
 
-    // Close existing connection
-    if (socketRef.current) {
-      socketRef.current.close();
+    if (hostname && hostname !== "localhost" && hostname !== "127.0.0.1" && isLocalHostInConfig) {
+      return configured
+        .replace("://localhost", `://${hostname}`)
+        .replace("://127.0.0.1", `://${hostname}`);
     }
 
-    const wsUrl = `${process.env.REACT_APP_WS_URL || "ws://localhost:8000"}/ws/${projectId}?token=${token}`;
+    return configured;
+  }, []);
+
+  const openProjectSocket = useCallback((projectId) => {
+    if (!token) return;
+    const key = String(projectId);
+    if (!key || socketsRef.current.has(key)) return;
+
+    const wsUrl = `${getWsBaseUrl()}/ws/${key}?token=${token}`;
     const ws = new WebSocket(wsUrl);
 
     ws.onopen = () => {
-      console.log(`[WS] Connected to project ${projectId}`);
+      console.log(`[WS] Connected to project ${key}`);
       // Send ping every 30 seconds to keep connection alive
       ws._pingInterval = setInterval(() => {
         if (ws.readyState === WebSocket.OPEN) {
@@ -62,23 +78,80 @@ const message = JSON.parse(event.data);
     };
 
     ws.onclose = () => {
-      console.log("[WS] Connection closed");
+      console.log(`[WS] Connection closed for project ${key}`);
       clearInterval(ws._pingInterval);
+      if (socketsRef.current.get(key) === ws) {
+        socketsRef.current.delete(key);
+      }
     };
 
     ws.onerror = (err) => {
       console.error("[WS] Error:", err);
     };
 
-    socketRef.current = ws;
-  }, [token]);
+    socketsRef.current.set(key, ws);
+  }, [token, getWsBaseUrl]);
 
-  const disconnectFromProject = useCallback(() => {
-    if (socketRef.current) {
-      socketRef.current.close();
-      socketRef.current = null;
+  const connectToProject = useCallback((projectId) => {
+    openProjectSocket(projectId);
+  }, [openProjectSocket]);
+
+  const disconnectFromProject = useCallback((projectId) => {
+    if (projectId) {
+      const key = String(projectId);
+      const ws = socketsRef.current.get(key);
+      if (ws) {
+        ws.close();
+        socketsRef.current.delete(key);
+      }
+      return;
+    }
+
+    for (const [key, ws] of socketsRef.current.entries()) {
+      ws.close();
+      socketsRef.current.delete(key);
     }
   }, []);
+
+  useEffect(() => {
+    let isCancelled = false;
+
+    const syncSockets = async () => {
+      if (!token) {
+        disconnectFromProject();
+        return;
+      }
+
+      try {
+        const res = await getMyProjects();
+        if (isCancelled) return;
+
+        const ids = new Set((res.data || []).map((p) => String(p.id)));
+
+        for (const projectId of ids) {
+          openProjectSocket(projectId);
+        }
+
+        for (const key of Array.from(socketsRef.current.keys())) {
+          if (!ids.has(key)) {
+            const ws = socketsRef.current.get(key);
+            if (ws) ws.close();
+            socketsRef.current.delete(key);
+          }
+        }
+      } catch (err) {
+        console.error("[WS] Failed to sync project sockets", err);
+      }
+    };
+
+    syncSockets();
+    const intervalId = token ? setInterval(syncSockets, 30000) : null;
+
+    return () => {
+      isCancelled = true;
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [token, openProjectSocket, disconnectFromProject]);
 
   const clearNotifications = () => setNotifications([]);
 

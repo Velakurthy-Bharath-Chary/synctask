@@ -16,7 +16,7 @@ const COLUMN_LABELS = {
 export default function ProjectView() {
   const { projectId } = useParams();
   const navigate = useNavigate();
-  const { connectToProject, disconnectFromProject, subscribe } = useWebSocket();
+  const { connectToProject, subscribe } = useWebSocket();
 
   const [project, setProject] = useState(null);
   const [tasks, setTasks] = useState([]);
@@ -28,8 +28,8 @@ export default function ProjectView() {
   const fetchData = useCallback(async () => {
     try {
       const [projRes, taskRes] = await Promise.all([
-        getProject(parseInt(projectId)),
-        getTasks(parseInt(projectId)),
+        getProject(projectId),
+        getTasks(projectId),
       ]);
       setProject(projRes.data);
       setTasks(taskRes.data);
@@ -42,7 +42,7 @@ export default function ProjectView() {
 
   useEffect(() => {
     fetchData();
-    connectToProject(parseInt(projectId));
+    connectToProject(projectId);
 
     // Listen for real-time task events
     const unsubCreate = subscribe("task_created", (msg) => {
@@ -62,21 +62,42 @@ export default function ProjectView() {
       setTasks((prev) => prev.filter((t) => t.id !== msg.task_id));
     });
 
+    const unsubProjectUpdate = subscribe("project_updated", (msg) => {
+      if (msg?.project?.id === projectId) {
+        setProject((prev) => ({ ...prev, ...msg.project }));
+      }
+    });
+
+    const unsubMemberJoined = subscribe("member_joined", (msg) => {
+      if (msg?.project_id === projectId) {
+        fetchData();
+      }
+    });
+
+    const unsubProjectDelete = subscribe("project_deleted", (msg) => {
+      if (msg?.project_id === projectId) {
+        navigate("/");
+      }
+    });
+
     return () => {
-      disconnectFromProject();
       unsubCreate();
       unsubUpdate();
       unsubDelete();
+      unsubProjectUpdate();
+      unsubMemberJoined();
+      unsubProjectDelete();
     };
-  }, [projectId, connectToProject, disconnectFromProject, subscribe, fetchData]);
+  }, [projectId, connectToProject, subscribe, fetchData, navigate]);
 
   const handleSaveTask = async (formData) => {
     try {
       if (editingTask?.id) {
         await updateTask(editingTask.id, formData);
       } else {
-        await createTask(parseInt(projectId), formData);
+        await createTask(projectId, formData);
       }
+      await fetchData();
       setShowModal(false);
       setEditingTask(null);
     } catch (err) {
@@ -88,6 +109,7 @@ export default function ProjectView() {
     if (!window.confirm("Delete this task?")) return;
     try {
       await deleteTask(taskId);
+      await fetchData();
     } catch (err) {
       alert("Failed to delete task.");
     }

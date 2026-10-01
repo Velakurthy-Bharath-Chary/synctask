@@ -32,7 +32,7 @@ export default function Dashboard() {
       await createProject(newProject);
       setNewProject({ name: "", description: "" });
       setShowCreate(false);
-      fetchProjects();
+      await fetchProjects();
     } catch (err) {
       setError(err.response?.data?.detail || "Failed to create project.");
     }
@@ -41,7 +41,7 @@ export default function Dashboard() {
   const handleJoin = async (projectId) => {
     try {
       await joinProject(projectId);
-      fetchProjects();
+      await fetchProjects();
     } catch (err) {
       alert(err.response?.data?.detail || "Failed to join project.");
     }

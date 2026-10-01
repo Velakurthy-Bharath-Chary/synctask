@@ -85,3 +85,5 @@ docker-compose up
 ## 📝 License
 
 This project is open source and available under the [MIT License](LICENSE).
+uvicorn app.main:app --reload --port 8000
+npm start

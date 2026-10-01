@@ -1,11 +1,16 @@
+from uuid import UUID
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from app.models.task import Task, TaskStatus
 from app.models.user import User
 
-def get_project_analytics(db: Session, project_id: int) -> dict:
-    # Get all tasks for this project
-    tasks = db.query(Task).filter(Task.project_id == project_id).all()
+
+def get_project_analytics(db: Session, project_id: UUID) -> dict:
+    # Get all non-archived tasks for this project
+    tasks = db.query(Task).filter(
+        Task.project_id == project_id,
+        Task.is_archived == False
+    ).all()
     total = len(tasks)
 
     # Count tasks by status
@@ -34,7 +39,11 @@ def get_project_analytics(db: Session, project_id: int) -> dict:
         User.username,
         func.count(Task.id).label("task_count")
     ).join(Task, Task.assigned_to == User.id)\
-     .filter(Task.project_id == project_id, Task.status == TaskStatus.DONE)\
+     .filter(
+         Task.project_id == project_id,
+         Task.status == TaskStatus.DONE,
+         Task.is_archived == False
+     )\
      .group_by(User.username).all()
 
     return {
@@ -47,6 +56,3 @@ def get_project_analytics(db: Session, project_id: int) -> dict:
             for row in member_productivity
         ],
     }
-"""What this file does:
-DataDescriptiontotal_tasksTotal number of tasks in projectstatus_breakdownHow many TODO, IN_PROGRESS, DONEpriority_breakdownHow many LOW, MEDIUM, HIGHcompletion_ratePercentage of tasks completedmember_productivityHow many tasks each member completed
-This data powers the charts on the Analytics page in the frontend!"""

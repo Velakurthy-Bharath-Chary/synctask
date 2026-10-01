@@ -1,39 +1,59 @@
 from pydantic import BaseModel
 from datetime import datetime
 from typing import Optional, List
+from uuid import UUID
+from enum import Enum
 from app.schemas.user import UserOut
+
+
+class ProjectRole(str, Enum):
+    admin = "admin"
+    member = "member"
+    guest = "guest"
+
 
 class ProjectCreate(BaseModel):
     name: str
     description: Optional[str] = None
+    slug: Optional[str] = None  # Auto-generated from name if not provided
+
 
 class ProjectUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
+    is_archived: Optional[bool] = None
+
 
 class ProjectMemberOut(BaseModel):
-    id: int
+    id: UUID
     user: UserOut
+    role: ProjectRole
     joined_at: datetime
 
     class Config:
         from_attributes = True
 
+
 class ProjectOut(BaseModel):
-    id: int
+    id: UUID
     name: str
     description: Optional[str]
-    owner_id: int
+    slug: str
+    owner_id: UUID
+    is_archived: bool = False
     created_at: datetime
+    updated_at: Optional[datetime] = None
     members: List[ProjectMemberOut] = []
 
     class Config:
         from_attributes = True
 
-class JoinProject(BaseModel):
-    project_id: int
-"""What this file does:
 
-ProjectCreate — data needed to create a project (just name and description)
-ProjectOut — what we send back, includes the full members list
-JoinProject — just needs a project_id to join a project"""    
+class JoinProject(BaseModel):
+    project_id: UUID
+    role: ProjectRole = ProjectRole.member
+
+
+class AddMember(BaseModel):
+    user_id: UUID
+    role: ProjectRole = ProjectRole.member

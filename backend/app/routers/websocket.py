@@ -1,28 +1,32 @@
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
 from jose import JWTError
+from uuid import UUID
 from app.core.security import decode_token
 from app.core.ws_manager import ws_manager
 
 router = APIRouter(tags=["WebSocket"])
 
+
 @router.websocket("/ws/{project_id}")
 async def websocket_endpoint(
     websocket: WebSocket,
-    project_id: int,
+    project_id: str,
     token: str = Query(...)
 ):
     # Verify JWT token before accepting connection
     try:
         payload = decode_token(token)
-        user_id = int(payload.get("sub"))
-        if not user_id:
+        user_id_str = payload.get("sub")
+        if not user_id_str:
             await websocket.close(code=4001)
             return
-    except JWTError:
+        # Validate it's a valid UUID
+        UUID(user_id_str)
+    except (JWTError, ValueError):
         await websocket.close(code=4001)
         return
 
-    # Connect user to project room
+    # Connect user to project room (project_id is now a string/UUID)
     await ws_manager.connect(websocket, project_id)
 
     try:
@@ -41,21 +45,3 @@ async def websocket_endpoint(
 
     except WebSocketDisconnect:
         ws_manager.disconnect(websocket, project_id)
-"""
-
-**What these two files do:**
-
-`analytics.py`:
-```
-GET /analytics/projects/{id}
-→ Checks membership
-→ Returns charts data
-```
-
-`websocket.py`:
-```
-ws://localhost:8000/ws/{project_id}?token=...
-→ Verifies JWT token
-→ Adds user to project room
-→ Keeps connection alive
-→ Listens for ping → replies pong"""

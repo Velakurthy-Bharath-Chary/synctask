@@ -1,31 +1,52 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Enum
+import uuid
+from sqlalchemy import Column, String, Text, DateTime, ForeignKey, Boolean, Enum
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 import enum
 from app.database import Base
+
 
 class TaskStatus(str, enum.Enum):
     TODO = "TODO"
     IN_PROGRESS = "IN_PROGRESS"
     DONE = "DONE"
 
+
 class TaskPriority(str, enum.Enum):
     LOW = "LOW"
     MEDIUM = "MEDIUM"
     HIGH = "HIGH"
 
+
+class ActivityAction(str, enum.Enum):
+    TASK_CREATED = "TASK_CREATED"
+    TASK_UPDATED = "TASK_UPDATED"
+    TASK_ASSIGNED = "TASK_ASSIGNED"
+    TASK_COMPLETED = "TASK_COMPLETED"
+    STATUS_CHANGED = "STATUS_CHANGED"
+    PRIORITY_CHANGED = "PRIORITY_CHANGED"
+    DEADLINE_SET = "DEADLINE_SET"
+    PROJECT_CREATED = "PROJECT_CREATED"
+    PROJECT_UPDATED = "PROJECT_UPDATED"
+    MEMBER_JOINED = "MEMBER_JOINED"
+    MEMBER_LEFT = "MEMBER_LEFT"
+    COMMENT_ADDED = "COMMENT_ADDED"
+
+
 class Task(Base):
     __tablename__ = "tasks"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
     title = Column(String(200), nullable=False)
     description = Column(Text, nullable=True)
     status = Column(Enum(TaskStatus), default=TaskStatus.TODO, nullable=False)
     priority = Column(Enum(TaskPriority), default=TaskPriority.MEDIUM, nullable=False)
     deadline = Column(DateTime(timezone=True), nullable=True)
-    project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
-    assigned_to = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
-    created_by = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    assigned_to = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    is_archived = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -33,23 +54,38 @@ class Task(Base):
     project = relationship("Project", back_populates="tasks")
     assignee = relationship("User", back_populates="assigned_tasks", foreign_keys=[assigned_to])
     creator = relationship("User", back_populates="created_tasks", foreign_keys=[created_by])
-    activity_logs = relationship("ActivityLog", back_populates="task",
-                                 cascade="all, delete-orphan")
+    activity_logs = relationship("ActivityLog", back_populates="task", cascade="all, delete-orphan")
+    comments = relationship("Comment", back_populates="task", cascade="all, delete-orphan")
+
 
 class ActivityLog(Base):
     __tablename__ = "activity_logs"
 
-    id = Column(Integer, primary_key=True, index=True)
-    task_id = Column(Integer, ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    action = Column(String(255), nullable=False)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    task_id = Column(UUID(as_uuid=True), ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    action = Column(Enum(ActivityAction), nullable=False)
+    old_value = Column(JSONB, nullable=True)
+    new_value = Column(JSONB, nullable=True)
+    extra_data = Column(JSONB, nullable=True)  # renamed from 'metadata' - reserved in SQLAlchemy
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     # Relationships
     task = relationship("Task", back_populates="activity_logs")
     user = relationship("User", back_populates="activity_logs")
-    """What this file does:
 
-Defines the tasks table with status and priority enums
-Defines activity_logs table — every change to a task gets recorded here
-ondelete="SET NULL" means if an assigned user is deleted, the task stays but becomes unassigned"""
+
+class Comment(Base):
+    __tablename__ = "comments"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    task_id = Column(UUID(as_uuid=True), ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    content = Column(Text, nullable=False)
+    is_edited = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    # Relationships
+    task = relationship("Task", back_populates="comments")
+    user = relationship("User", back_populates="comments")
